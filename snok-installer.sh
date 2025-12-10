@@ -460,8 +460,17 @@ nvidia_prompt() {
 }
 
 encryption_prompt() {
-    dialog --title "$(get_text 'encryption')" \
-           --yesno "$(get_text 'encryption')\n\nThis will encrypt your entire disk using LUKS." 10 60
+    dialog --title "Disk Encryption (LUKS)" \
+           --yesno "Enable full disk encryption?\n\n\
+Benefits:\n\
+  ✓ Protects data if disk is stolen\n\
+  ✓ Uses LUKS2 encryption standard\n\
+  ✓ Military-grade security\n\n\
+Drawbacks:\n\
+  ✗ Requires password on every boot\n\
+  ✗ Slight performance impact (~5%)\n\
+  ✗ Cannot recover data if password is lost\n\n\
+Enable encryption?" 18 60
     
     if [ $? -eq 0 ]; then
         USE_ENCRYPTION=true
@@ -476,53 +485,38 @@ password_input_with_toggle() {
     local title="$1"
     local prompt="$2"
     local password=""
-    local show_password=false
     
-    while true; do
-        if [ "$show_password" = true ]; then
-            # Show password in plain text with option to hide
-            password=$(dialog --clear --title "$title" \
-                --extra-button --extra-label "Hide" \
-                --ok-label "Continue" \
-                --cancel-label "Cancel" \
-                --inputbox "$prompt\n\n[Password visible]\n\nPress 'Hide' to hide password" 12 60 "$password" \
-                3>&1 1>&2 2>&3)
-            local exit_code=$?
-            
-            if [ $exit_code -eq 0 ]; then
-                # Continue pressed
-                echo "$password"
-                return 0
-            elif [ $exit_code -eq 3 ]; then
-                # Hide button pressed
-                show_password=false
-            else
-                # Cancel pressed
-                return 1
-            fi
+    # Simple password input with option to show
+    password=$(dialog --clear --title "$title" \
+        --extra-button --extra-label "Show Password" \
+        --ok-label "Continue" \
+        --cancel-label "Cancel" \
+        --insecure --passwordbox "$prompt\n\n(Password hidden as ***)\n\nPress 'Show Password' to reveal" 12 60 \
+        3>&1 1>&2 2>&3)
+    local exit_code=$?
+    
+    if [ $exit_code -eq 0 ]; then
+        # Continue pressed with hidden password
+        echo "$password"
+        return 0
+    elif [ $exit_code -eq 3 ]; then
+        # Show password button pressed - display in plain text
+        password=$(dialog --clear --title "$title" \
+            --ok-label "Continue" \
+            --cancel-label "Cancel" \
+            --inputbox "$prompt\n\n(Password visible)\n\nPress 'Continue' when done" 12 60 "$password" \
+            3>&1 1>&2 2>&3)
+        
+        if [ $? -eq 0 ]; then
+            echo "$password"
+            return 0
         else
-            # Show password as asterisks with option to show
-            password=$(dialog --clear --title "$title" \
-                --extra-button --extra-label "Show" \
-                --ok-label "Continue" \
-                --cancel-label "Cancel" \
-                --insecure --passwordbox "$prompt\n\n[Password hidden - shown as ***]\n\nPress 'Show' to reveal password" 12 60 \
-                3>&1 1>&2 2>&3)
-            local exit_code=$?
-            
-            if [ $exit_code -eq 0 ]; then
-                # Continue pressed
-                echo "$password"
-                return 0
-            elif [ $exit_code -eq 3 ]; then
-                # Show button pressed
-                show_password=true
-            else
-                # Cancel pressed
-                return 1
-            fi
+            return 1
         fi
-    done
+    else
+        # Cancel pressed
+        return 1
+    fi
 }
 
 user_setup() {
@@ -579,14 +573,8 @@ user_setup() {
         return
     fi
     
-    # Hostname
-    HOSTNAME=$(dialog --clear --title "$(get_text 'user_setup')" \
-        --inputbox "$(get_text 'hostname'):" 10 60 \
-        3>&1 1>&2 2>&3)
-    
-    if [ -z "$HOSTNAME" ]; then
-        HOSTNAME="snok-linux"
-    fi
+    # Set default hostname automatically
+    HOSTNAME="snok-linux"
     
     log "User setup complete: username=$USERNAME, hostname=$HOSTNAME"
 }
@@ -722,13 +710,11 @@ format_partitions() {
     
     local root_part="${SELECTED_DISK}2"
     local efi_part="${SELECTED_DISK}1"
-    local swap_part="${SELECTED_DISK}3"
     
     # Handle different naming schemes (nvme, mmcblk, etc.)
     if [[ "$SELECTED_DISK" =~ "nvme" ]] || [[ "$SELECTED_DISK" =~ "mmcblk" ]]; then
         root_part="${SELECTED_DISK}p2"
         efi_part="${SELECTED_DISK}p1"
-        swap_part="${SELECTED_DISK}p3"
     fi
     
     # Format EFI partition (UEFI only)
@@ -751,6 +737,11 @@ format_partitions() {
     
     # Format swap partition if selected
     if [ "$SELECTED_SWAP_TYPE" = "swap" ]; then
+        local swap_part="${SELECTED_DISK}3"
+        # Handle different naming schemes for swap
+        if [[ "$SELECTED_DISK" =~ "nvme" ]] || [[ "$SELECTED_DISK" =~ "mmcblk" ]]; then
+            swap_part="${SELECTED_DISK}p3"
+        fi
         log "Formatting swap partition $swap_part..."
         mkswap "$swap_part" 2>&1 | tee -a "$LOG_FILE"
     fi
@@ -767,13 +758,11 @@ mount_partitions() {
     
     local root_part="${SELECTED_DISK}2"
     local efi_part="${SELECTED_DISK}1"
-    local swap_part="${SELECTED_DISK}3"
     
     # Handle different naming schemes
     if [[ "$SELECTED_DISK" =~ "nvme" ]] || [[ "$SELECTED_DISK" =~ "mmcblk" ]]; then
         root_part="${SELECTED_DISK}p2"
         efi_part="${SELECTED_DISK}p1"
-        swap_part="${SELECTED_DISK}p3"
     fi
     
     # Mount root
@@ -792,6 +781,11 @@ mount_partitions() {
     
     # Enable swap if selected
     if [ "$SELECTED_SWAP_TYPE" = "swap" ]; then
+        local swap_part="${SELECTED_DISK}3"
+        # Handle different naming schemes for swap
+        if [[ "$SELECTED_DISK" =~ "nvme" ]] || [[ "$SELECTED_DISK" =~ "mmcblk" ]]; then
+            swap_part="${SELECTED_DISK}p3"
+        fi
         swapon "$swap_part"
     fi
     

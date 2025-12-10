@@ -1,4 +1,4 @@
-# Snok-Installer - إصلاحات النسخة 2.1
+# Snok-Installer - إصلاحات النسخة 2.3
 
 ## التحديثات المنفذة / Updates Implemented
 
@@ -97,12 +97,123 @@ parted -s "$SELECTED_DISK" mkpart SWAP ${swap_start}MiB 100%    # ✅ صحيح
 
 ---
 
+### 4. ✅ إصلاح اكتشاف الأقسام / Fixed Partition Detection
+
+**المشكلة / Problem:**
+```bash
+mkswap: cannot open /dev/sda3: No such file or directory
+swapon: cannot open /dev/sda3: No such file or directory
+```
+
+**السبب / Root Cause:**
+- السكريبت يحاول الوصول إلى القسم 3 (SWAP) حتى عندما لا يتم إنشاؤه
+- عند اختيار "No SWAP" يتم إنشاء قسمين فقط، لكن الكود يحاول استخدام القسم الثالث
+- Script tries to access partition 3 (SWAP) even when it's not created
+- When selecting "No SWAP", only 2 partitions are created, but code tries to use partition 3
+
+**الحل / Solution:**
+- تعريف متغير `swap_part` فقط داخل الشرط `if [ "$SELECTED_SWAP_TYPE" = "swap" ]`
+- تجنب الوصول إلى أقسام غير موجودة
+- Define `swap_part` variable only inside the `if [ "$SELECTED_SWAP_TYPE" = "swap" ]` condition
+- Avoid accessing non-existent partitions
+
+**قبل / Before:**
+```bash
+local swap_part="${SELECTED_DISK}3"
+# ...
+if [ "$SELECTED_SWAP_TYPE" = "swap" ]; then
+    mkswap "$swap_part"  # ❌ خطأ - القسم قد لا يكون موجوداً
+fi
+```
+
+**بعد / After:**
+```bash
+if [ "$SELECTED_SWAP_TYPE" = "swap" ]; then
+    local swap_part="${SELECTED_DISK}3"
+    if [[ "$SELECTED_DISK" =~ "nvme" ]] || [[ "$SELECTED_DISK" =~ "mmcblk" ]]; then
+        swap_part="${SELECTED_DISK}p3"
+    fi
+    mkswap "$swap_part"  # ✅ صحيح - القسم موجود
+fi
+```
+
+---
+
+### 5. ✅ إزالة حقل اسم الجهاز / Removed Hostname Field
+
+**التغيير / Change:**
+- إزالة مربع حوار إدخال اسم الجهاز
+- تعيين اسم افتراضي تلقائياً: `snok-linux`
+- تبسيط عملية الإعداد
+- Removed hostname input dialog
+- Automatically set default hostname: `snok-linux`
+- Simplified setup process
+
+**قبل / Before:**
+```bash
+HOSTNAME=$(dialog --inputbox "Enter hostname:" 10 60)
+if [ -z "$HOSTNAME" ]; then
+    HOSTNAME="snok-linux"
+fi
+```
+
+**بعد / After:**
+```bash
+# Set default hostname automatically
+HOSTNAME="snok-linux"
+```
+
+---
+
+### 6. ✅ تحسين مربع حوار التشفير / Improved Encryption Dialog
+
+**التحسينات / Improvements:**
+- إضافة معلومات مفصلة عن فوائد وعيوب التشفير
+- شرح واضح لـ LUKS2
+- مساعدة المستخدم على اتخاذ قرار مستنير
+- Added detailed information about encryption benefits and drawbacks
+- Clear explanation of LUKS2
+- Help user make informed decision
+
+**الميزات الجديدة / New Features:**
+```
+Benefits:
+  ✓ Protects data if disk is stolen
+  ✓ Uses LUKS2 encryption standard
+  ✓ Military-grade security
+
+Drawbacks:
+  ✗ Requires password on every boot
+  ✗ Slight performance impact (~5%)
+  ✗ Cannot recover data if password is lost
+```
+
+---
+
+### 7. ✅ تبسيط مربع حوار كلمة المرور / Simplified Password Dialog
+
+**التحسينات / Improvements:**
+- إزالة التبديل المعقد بين إظهار/إخفاء
+- واجهة أبسط وأسهل في الاستخدام
+- زر واحد "Show Password" لإظهار كلمة المرور عند الحاجة
+- Removed complex show/hide toggle
+- Simpler and easier to use interface
+- Single "Show Password" button to reveal when needed
+
+**الاستخدام / Usage:**
+1. أدخل كلمة المرور (مخفية كـ ***)
+2. اضغط "Show Password" إذا أردت رؤيتها
+3. اضغط "Continue" للمتابعة
+
+---
+
 ## الإحصائيات / Statistics
 
 | البند / Item | القيمة / Value |
 |--------------|----------------|
-| عدد الأسطر / Lines of Code | 955 |
-| عدد الدوال / Functions | 37 (+2) |
+| عدد الأسطر / Lines of Code | 956 |
+| عدد الدوال / Functions | 37 |
+| الإصلاحات / Fixes | 7 |
 | اللغات المدعومة / Languages | 4 |
 | مديرو الحزم / Package Managers | 4 |
 
@@ -236,5 +347,5 @@ password_input_with_toggle() {
 ---
 
 **تم التحديث / Updated:** 10 ديسمبر 2025  
-**النسخة / Version:** 2.2  
+**النسخة / Version:** 2.3  
 **الحالة / Status:** ✅ جاهز للاستخدام / Ready to Use
