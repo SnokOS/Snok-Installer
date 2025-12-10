@@ -1,0 +1,39 @@
+{
+    "installer": {
+        "name": "Snok-Installer",
+        "version": "2.0",
+        "license": "GPLv3"
+    },
+    "defaults": {
+        "language": "en",
+        "timezone": "UTC",
+        "keyboard": "us",
+        "swap_type": "zram",
+        "encryption": false,
+        "desktop_environment": "xfce"
+    },
+    "swap_recommendations": {
+        "ram_less_than_4gb": "swap",
+        "ram_4_to_8gb": "zram",
+        "ram_more_than_8gb": "zram"
+    },
+    "partitioning": {
+        "efi_size_mb": 512,
+        "swap_size_gb": 4,
+        "min_root_size_gb": 20
+    },
+    "features": {
+        "nvidia_detection": true,
+        "uefi_detection": true,
+        "luks_encryption": true,
+        "lvm_support": true,
+        "raid_support": false,
+        "dual_boot": true,
+        "offline_mode": false
+    },
+    "logging": {
+        "enabled": true,
+        "log_directory": "logs",
+        "log_level": "info"
+    }
+}

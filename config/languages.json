@@ -1,0 +1,26 @@
+{
+  "languages": {
+    "en": {
+      "name": "English",
+      "code": "en",
+      "rtl": false
+    },
+    "ar": {
+      "name": "العربية",
+      "code": "ar",
+      "rtl": true
+    },
+    "fr": {
+      "name": "Français",
+      "code": "fr",
+      "rtl": false
+    },
+    "es": {
+      "name": "Español",
+      "code": "es",
+      "rtl": false
+    }
+  },
+  "default_language": "en",
+  "supported_languages": ["en", "ar", "fr", "es"]
+}
