@@ -55,8 +55,8 @@ dialog lsblk parted mkfs.ext4 mkfs.fat lspci wipefs cryptsetup
 
 1. **Download the installer**:
    ```bash
-   git clone https://github.com/snok/installer.git
-   cd Snok-Installer_V2
+   git clone https://github.com/SnokOS/Snok-Installer.git
+   cd Snok-Installer
    ```
 
 2. **Make executable**:
@@ -146,7 +146,7 @@ Choose from:
 ## 📁 Project Structure
 
 ```
-Snok-Installer_V2/
+Snok-Installer
 ├── snok-installer.sh      # Main installer script
 ├── assets/
 │   └── logo.png           # Snok logo
@@ -260,8 +260,8 @@ See [LICENSE](LICENSE) for details.
 
 ## 📞 Support
 
-- **Issues**: [GitHub Issues](https://github.com/snok/installer/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/snok/installer/discussions)
+- **Issues**: [GitHub Issues](https://github.com/SnokOS/installer/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/SnokOS/installer/discussions)
 - **Email**: support@snok-installer.org
 
 ---
@@ -270,7 +270,7 @@ See [LICENSE](LICENSE) for details.
 
 **Made with ❤️ for the Linux Community**
 
-[Website](https://snok-installer.org) • [Documentation](https://docs.snok-installer.org) • [Community](https://community.snok-installer.org)
+[Website](https://SnokOS.org) • [Documentation](https://docs.SnokOS.org) • [Community](https://community.SnokOS.org)
 
 </div>
 
