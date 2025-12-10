@@ -10,21 +10,39 @@ parted: invalid option -- '4'
 parted: invalid option -- 'G'
 parted: invalid option -- 'i'
 parted: invalid option -- 'B'
+Usage: parted [-hlmsv] [-a<align>] [DEVICE [COMMAND [PARAMETERS]]...]
+Error: Partition doesn't exist.
 ```
 
+**السبب / Root Cause:**
+- استخدام قيم سالبة مثل `-4GiB` في أوامر `parted`
+- يفسر `parted` الإشارة السالبة `-` كخيار سطر أوامر وليس كحجم قسم
+- Using negative values like `-4GiB` in `parted` commands
+- `parted` interprets the `-` sign as a command-line option flag, not as a partition size
+
 **الحل / Solution:**
-- إزالة نوع نظام الملفات من أوامر `mkpart` في GPT
-- تصحيح بناء الجملة لـ GPT و MBR
-- إضافة سجلات مفصلة لكل خطوة
+- حساب حجم القرص الكلي أولاً
+- حساب موضع بداية قسم SWAP بطرح 4096 ميجابايت من الحجم الكلي
+- استخدام القيم المطلقة المحسوبة بدلاً من القيم السالبة
+- Calculate total disk size first
+- Calculate SWAP partition start position by subtracting 4096 MiB from total size
+- Use calculated absolute values instead of negative values
 
 **قبل / Before:**
 ```bash
-parted -s "$SELECTED_DISK" mkpart primary fat32 1MiB 513MiB  # خطأ في GPT
+parted -s "$SELECTED_DISK" mkpart ROOT 513MiB -4GiB  # ❌ خطأ - يفسر كخيار
+parted -s "$SELECTED_DISK" mkpart SWAP -4GiB 100%    # ❌ خطأ - يفسر كخيار
 ```
 
 **بعد / After:**
 ```bash
-parted -s "$SELECTED_DISK" mkpart EFI 1MiB 513MiB  # صحيح
+# حساب حجم القرص وموضع البداية
+local disk_size=$(parted -s "$SELECTED_DISK" unit MiB print | grep "^Disk" | awk '{print $3}' | sed 's/MiB//')
+local swap_start=$((disk_size - 4096))  # 4GiB = 4096MiB
+
+# استخدام القيم المطلقة
+parted -s "$SELECTED_DISK" mkpart ROOT 513MiB ${swap_start}MiB  # ✅ صحيح
+parted -s "$SELECTED_DISK" mkpart SWAP ${swap_start}MiB 100%    # ✅ صحيح
 ```
 
 ---
@@ -132,17 +150,25 @@ sudo ./snok-installer.sh
 
 ### إصلاح Parted لـ UEFI / Parted Fix for UEFI
 ```bash
+# حساب حجم القرص / Calculate disk size
+local disk_size=$(parted -s "$SELECTED_DISK" unit MiB print | grep "^Disk" | awk '{print $3}' | sed 's/MiB//')
+local swap_start=$((disk_size - 4096))  # 4GiB = 4096MiB
+
 # GPT (UEFI) - لا يستخدم نوع نظام الملفات
 parted -s "$SELECTED_DISK" mkpart EFI 1MiB 513MiB
-parted -s "$SELECTED_DISK" mkpart ROOT 513MiB -4GiB
-parted -s "$SELECTED_DISK" mkpart SWAP -4GiB 100%
+parted -s "$SELECTED_DISK" mkpart ROOT 513MiB ${swap_start}MiB
+parted -s "$SELECTED_DISK" mkpart SWAP ${swap_start}MiB 100%
 ```
 
 ### إصلاح Parted لـ Legacy BIOS / Parted Fix for Legacy BIOS
 ```bash
+# حساب حجم القرص / Calculate disk size
+local disk_size=$(parted -s "$SELECTED_DISK" unit MiB print | grep "^Disk" | awk '{print $3}' | sed 's/MiB//')
+local swap_start=$((disk_size - 4096))  # 4GiB = 4096MiB
+
 # MBR (Legacy) - يستخدم نوع نظام الملفات
-parted -s "$SELECTED_DISK" mkpart primary ext4 1MiB -4GiB
-parted -s "$SELECTED_DISK" mkpart primary linux-swap -4GiB 100%
+parted -s "$SELECTED_DISK" mkpart primary ext4 1MiB ${swap_start}MiB
+parted -s "$SELECTED_DISK" mkpart primary linux-swap ${swap_start}MiB 100%
 ```
 
 ### دالة تثبيت المكتبات / Dependency Installation Function
@@ -210,5 +236,5 @@ password_input_with_toggle() {
 ---
 
 **تم التحديث / Updated:** 10 ديسمبر 2025  
-**النسخة / Version:** 2.1  
+**النسخة / Version:** 2.2  
 **الحالة / Status:** ✅ جاهز للاستخدام / Ready to Use

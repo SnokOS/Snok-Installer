@@ -680,8 +680,11 @@ auto_partition_disk() {
         # Root partition (remaining space or leave space for swap)
         if [ "$SELECTED_SWAP_TYPE" = "swap" ]; then
             log "Creating root partition and swap partition..."
-            parted -s "$SELECTED_DISK" mkpart ROOT 513MiB -4GiB 2>&1 | tee -a "$LOG_FILE"
-            parted -s "$SELECTED_DISK" mkpart SWAP -4GiB 100% 2>&1 | tee -a "$LOG_FILE"
+            # Get disk size and calculate partition end
+            local disk_size=$(parted -s "$SELECTED_DISK" unit MiB print | grep "^Disk" | awk '{print $3}' | sed 's/MiB//')
+            local swap_start=$((disk_size - 4096))  # 4GiB = 4096MiB from end
+            parted -s "$SELECTED_DISK" mkpart ROOT 513MiB ${swap_start}MiB 2>&1 | tee -a "$LOG_FILE"
+            parted -s "$SELECTED_DISK" mkpart SWAP ${swap_start}MiB 100% 2>&1 | tee -a "$LOG_FILE"
         else
             log "Creating root partition..."
             parted -s "$SELECTED_DISK" mkpart ROOT 513MiB 100% 2>&1 | tee -a "$LOG_FILE"
@@ -693,8 +696,11 @@ auto_partition_disk() {
         # Root partition - MBR uses filesystem type
         if [ "$SELECTED_SWAP_TYPE" = "swap" ]; then
             log "Creating root partition and swap partition..."
-            parted -s "$SELECTED_DISK" mkpart primary ext4 1MiB -4GiB 2>&1 | tee -a "$LOG_FILE"
-            parted -s "$SELECTED_DISK" mkpart primary linux-swap -4GiB 100% 2>&1 | tee -a "$LOG_FILE"
+            # Get disk size and calculate partition end
+            local disk_size=$(parted -s "$SELECTED_DISK" unit MiB print | grep "^Disk" | awk '{print $3}' | sed 's/MiB//')
+            local swap_start=$((disk_size - 4096))  # 4GiB = 4096MiB from end
+            parted -s "$SELECTED_DISK" mkpart primary ext4 1MiB ${swap_start}MiB 2>&1 | tee -a "$LOG_FILE"
+            parted -s "$SELECTED_DISK" mkpart primary linux-swap ${swap_start}MiB 100% 2>&1 | tee -a "$LOG_FILE"
         else
             log "Creating root partition..."
             parted -s "$SELECTED_DISK" mkpart primary ext4 1MiB 100% 2>&1 | tee -a "$LOG_FILE"
