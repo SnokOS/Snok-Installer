@@ -702,7 +702,6 @@ Proceed with installation?" 22 70
 
 auto_partition_disk() {
     log "Starting automatic disk partitioning on $SELECTED_DISK..."
-    update_progress "🔧 Preparing disk..." 0
     
     # Warning
     dialog --title "WARNING" \
@@ -712,6 +711,9 @@ auto_partition_disk() {
         log "User cancelled partitioning"
         exit 0
     fi
+    
+    # Start progress tracking after user confirmation
+    update_progress "🔧 Preparing disk..." 0
     
     # Wipe disk
     log "Wiping disk $SELECTED_DISK..."
