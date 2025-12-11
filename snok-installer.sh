@@ -44,6 +44,11 @@ CYAN='\033[0;36m'
 WHITE='\033[1;37m'
 NC='\033[0m' # No Color
 
+# Progress tracking
+PROGRESS_PIPE="/tmp/snok-installer-progress-$$"
+PROGRESS_PID=""
+CURRENT_PROGRESS=0
+
 ################################################################################
 # LOGGING FUNCTIONS
 ################################################################################
@@ -86,7 +91,63 @@ cleanup_on_error() {
     log "Performing cleanup after error..."
     # Unmount any mounted partitions
     sync
+    # Cleanup progress bar
+    cleanup_progress
     # Add more cleanup as needed
+}
+
+################################################################################
+# PROGRESS BAR FUNCTIONS
+################################################################################
+
+update_progress() {
+    local step_name="$1"
+    local percentage="$2"
+    
+    # Update current progress
+    CURRENT_PROGRESS=$percentage
+    
+    # Send update to progress bar using XXX markers
+    if [ -p "$PROGRESS_PIPE" ]; then
+        (
+            echo "XXX"
+            echo "$percentage"
+            echo "$step_name"
+            echo "XXX"
+        ) > "$PROGRESS_PIPE" 2>/dev/null || true
+    fi
+    
+    log "Progress: $percentage% - $step_name"
+}
+
+show_progress_bar() {
+    # Create named pipe if it doesn't exist
+    if [ ! -p "$PROGRESS_PIPE" ]; then
+        mkfifo "$PROGRESS_PIPE" 2>/dev/null || true
+    fi
+    
+    # Show progress bar dialog reading from pipe
+    dialog --title "Installing Snok Linux" \
+           --gauge "Initializing installation..." 10 70 0 < "$PROGRESS_PIPE" &
+    
+    PROGRESS_PID=$!
+    
+    # Give dialog time to start
+    sleep 0.5
+}
+
+cleanup_progress() {
+    # Close progress bar
+    if [ -n "$PROGRESS_PID" ] && kill -0 "$PROGRESS_PID" 2>/dev/null; then
+        # Send 100% completion
+        echo "100" > "$PROGRESS_PIPE" 2>/dev/null || true
+        sleep 0.5
+        kill "$PROGRESS_PID" 2>/dev/null || true
+        wait "$PROGRESS_PID" 2>/dev/null || true
+    fi
+    
+    # Remove pipe
+    rm -f "$PROGRESS_PIPE" 2>/dev/null || true
 }
 
 ################################################################################
@@ -641,6 +702,7 @@ Proceed with installation?" 22 70
 
 auto_partition_disk() {
     log "Starting automatic disk partitioning on $SELECTED_DISK..."
+    update_progress "🔧 Preparing disk..." 0
     
     # Warning
     dialog --title "WARNING" \
@@ -653,21 +715,25 @@ auto_partition_disk() {
     
     # Wipe disk
     log "Wiping disk $SELECTED_DISK..."
+    update_progress "🧹 Wiping disk $SELECTED_DISK..." 2
     wipefs -af "$SELECTED_DISK" 2>&1 | tee -a "$LOG_FILE"
     
     # Create partition table
     if [ "$IS_UEFI" = true ]; then
         log "Creating GPT partition table for UEFI..."
+        update_progress "📋 Creating GPT partition table..." 4
         parted -s "$SELECTED_DISK" mklabel gpt 2>&1 | tee -a "$LOG_FILE"
         
         # EFI partition (512MB) - GPT doesn't use filesystem type in mkpart
         log "Creating EFI partition..."
+        update_progress "💾 Creating EFI partition..." 6
         parted -s "$SELECTED_DISK" mkpart EFI 1MiB 513MiB 2>&1 | tee -a "$LOG_FILE"
         parted -s "$SELECTED_DISK" set 1 esp on 2>&1 | tee -a "$LOG_FILE"
         
         # Root partition (remaining space or leave space for swap)
         if [ "$SELECTED_SWAP_TYPE" = "swap" ]; then
             log "Creating root partition and swap partition..."
+            update_progress "💿 Creating root and swap partitions..." 8
             # Get disk size and calculate partition end
             local disk_size=$(parted -s "$SELECTED_DISK" unit MiB print | grep "^Disk" | awk '{print $3}' | sed 's/MiB//')
             local swap_start=$((disk_size - 4096))  # 4GiB = 4096MiB from end
@@ -675,15 +741,18 @@ auto_partition_disk() {
             parted -s "$SELECTED_DISK" mkpart SWAP ${swap_start}MiB 100% 2>&1 | tee -a "$LOG_FILE"
         else
             log "Creating root partition..."
+            update_progress "💿 Creating root partition..." 8
             parted -s "$SELECTED_DISK" mkpart ROOT 513MiB 100% 2>&1 | tee -a "$LOG_FILE"
         fi
     else
         log "Creating MBR partition table for Legacy BIOS..."
+        update_progress "📋 Creating MBR partition table..." 4
         parted -s "$SELECTED_DISK" mklabel msdos 2>&1 | tee -a "$LOG_FILE"
         
         # Root partition - MBR uses filesystem type
         if [ "$SELECTED_SWAP_TYPE" = "swap" ]; then
             log "Creating root partition and swap partition..."
+            update_progress "💿 Creating root and swap partitions..." 6
             # Get disk size and calculate partition end
             local disk_size=$(parted -s "$SELECTED_DISK" unit MiB print | grep "^Disk" | awk '{print $3}' | sed 's/MiB//')
             local swap_start=$((disk_size - 4096))  # 4GiB = 4096MiB from end
@@ -691,6 +760,7 @@ auto_partition_disk() {
             parted -s "$SELECTED_DISK" mkpart primary linux-swap ${swap_start}MiB 100% 2>&1 | tee -a "$LOG_FILE"
         else
             log "Creating root partition..."
+            update_progress "💿 Creating root partition..." 6
             parted -s "$SELECTED_DISK" mkpart primary ext4 1MiB 100% 2>&1 | tee -a "$LOG_FILE"
         fi
         
@@ -698,15 +768,18 @@ auto_partition_disk() {
     fi
     
     # Wait for kernel to update
+    update_progress "🔄 Updating partition table..." 9
     sleep 2
     partprobe "$SELECTED_DISK"
     sleep 2
     
+    update_progress "✅ Disk partitioning complete" 10
     log_success "Disk partitioning complete"
 }
 
 format_partitions() {
     log "Formatting partitions..."
+    update_progress "🔧 Preparing to format partitions..." 10
     
     local root_part="${SELECTED_DISK}2"
     local efi_part="${SELECTED_DISK}1"
@@ -720,16 +793,20 @@ format_partitions() {
     # Format EFI partition (UEFI only)
     if [ "$IS_UEFI" = true ]; then
         log "Formatting EFI partition $efi_part..."
+        update_progress "💾 Formatting EFI partition..." 12
         mkfs.fat -F32 "$efi_part" 2>&1 | tee -a "$LOG_FILE"
     fi
     
     # Format root partition
     log "Formatting root partition $root_part..."
+    update_progress "💿 Formatting root partition..." 15
     
     if [ "$USE_ENCRYPTION" = true ]; then
         log "Setting up LUKS encryption..."
+        update_progress "🔒 Setting up LUKS encryption..." 17
         echo -n "$USER_PASSWORD" | cryptsetup luksFormat "$root_part" -
         echo -n "$USER_PASSWORD" | cryptsetup open "$root_part" cryptroot -
+        update_progress "🔐 Creating encrypted filesystem..." 20
         mkfs.ext4 -L "Snok-Root" /dev/mapper/cryptroot 2>&1 | tee -a "$LOG_FILE"
     else
         mkfs.ext4 -L "Snok-Root" "$root_part" 2>&1 | tee -a "$LOG_FILE"
@@ -743,9 +820,11 @@ format_partitions() {
             swap_part="${SELECTED_DISK}p3"
         fi
         log "Formatting swap partition $swap_part..."
+        update_progress "💫 Formatting swap partition..." 23
         mkswap "$swap_part" 2>&1 | tee -a "$LOG_FILE"
     fi
     
+    update_progress "✅ Partition formatting complete" 25
     log_success "Partition formatting complete"
 }
 
@@ -755,6 +834,7 @@ format_partitions() {
 
 mount_partitions() {
     log "Mounting partitions..."
+    update_progress "📂 Mounting partitions..." 25
     
     local root_part="${SELECTED_DISK}2"
     local efi_part="${SELECTED_DISK}1"
@@ -766,6 +846,7 @@ mount_partitions() {
     fi
     
     # Mount root
+    update_progress "💿 Mounting root filesystem..." 26
     mkdir -p /mnt
     if [ "$USE_ENCRYPTION" = true ]; then
         mount /dev/mapper/cryptroot /mnt
@@ -775,6 +856,7 @@ mount_partitions() {
     
     # Mount EFI (UEFI only)
     if [ "$IS_UEFI" = true ]; then
+        update_progress "💾 Mounting EFI partition..." 28
         mkdir -p /mnt/boot/efi
         mount "$efi_part" /mnt/boot/efi
     fi
@@ -786,71 +868,95 @@ mount_partitions() {
         if [[ "$SELECTED_DISK" =~ "nvme" ]] || [[ "$SELECTED_DISK" =~ "mmcblk" ]]; then
             swap_part="${SELECTED_DISK}p3"
         fi
+        update_progress "💫 Enabling swap..." 29
         swapon "$swap_part"
     fi
     
+    update_progress "✅ Partitions mounted successfully" 30
     log_success "Partitions mounted"
 }
 
 install_base_system() {
     log "Installing base system..."
+    update_progress "📦 Installing base system..." 30
     
     # This is a placeholder - actual implementation depends on the distribution
     # For Arch-based: pacstrap /mnt base linux linux-firmware
     # For Debian-based: debootstrap
     
-    dialog --title "$(get_text 'installing')" \
-           --infobox "$(get_text 'installing')\n\nThis may take several minutes..." 8 60
-    
-    # Simulate installation for demonstration
-    for i in {1..100}; do
-        echo "$i"
+    # Simulate installation with progress updates
+    local progress=30
+    for i in {1..40}; do
+        progress=$((30 + i))
+        case $i in
+            10) update_progress "🐧 Installing kernel..." $progress ;;
+            20) update_progress "🛠️ Installing system utilities..." $progress ;;
+            30) update_progress "🌐 Installing network tools..." $progress ;;
+            40) update_progress "✅ Base system installation complete" $progress ;;
+            *) 
+                if [ $((i % 5)) -eq 0 ]; then
+                    update_progress "📦 Installing packages... ($progress%)" $progress
+                fi
+                ;;
+        esac
         sleep 0.1
-    done | dialog --title "$(get_text 'installing')" --gauge "Installing base system..." 8 60 0
+    done
     
+    update_progress "✅ Base system installed successfully" 70
     log_success "Base system installed"
 }
 
 configure_system() {
     log "Configuring system..."
+    update_progress "⚙️ Configuring system..." 70
     
     # Set hostname
+    update_progress "🏷️ Setting hostname..." 72
     echo "$HOSTNAME" > /mnt/etc/hostname
     
     # Set timezone
     ln -sf "/usr/share/zoneinfo/$SELECTED_TIMEZONE" /mnt/etc/localtime
     
     # Set keyboard layout
+    update_progress "⌨️ Setting keyboard layout..." 74
     echo "KEYMAP=$SELECTED_KEYBOARD" > /mnt/etc/vconsole.conf
     
     # Create user
+    update_progress "👤 Creating user accounts..." 76
     arch-chroot /mnt useradd -m -G wheel -s /bin/bash "$USERNAME" 2>&1 | tee -a "$LOG_FILE" || true
     echo "$USERNAME:$USER_PASSWORD" | arch-chroot /mnt chpasswd 2>&1 | tee -a "$LOG_FILE" || true
     echo "root:$ROOT_PASSWORD" | arch-chroot /mnt chpasswd 2>&1 | tee -a "$LOG_FILE" || true
     
+    update_progress "✅ System configuration complete" 80
     log_success "System configuration complete"
 }
 
 install_bootloader() {
     log "Installing bootloader..."
+    update_progress "🚀 Installing bootloader..." 85
     
     if [ "$IS_UEFI" = true ]; then
         log "Installing GRUB for UEFI..."
+        update_progress "💻 Installing GRUB for UEFI..." 88
         # arch-chroot /mnt grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=GRUB
     else
         log "Installing GRUB for Legacy BIOS..."
+        update_progress "💻 Installing GRUB for Legacy BIOS..." 88
         # arch-chroot /mnt grub-install --target=i386-pc "$SELECTED_DISK"
     fi
     
     # Generate GRUB config
+    update_progress "⚙️ Generating GRUB configuration..." 92
     # arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg
     
+    update_progress "✅ Bootloader installed" 95
     log_success "Bootloader installed"
 }
 
 setup_zram() {
     if [ "$SELECTED_SWAP_TYPE" = "zram" ]; then
         log "Setting up ZRAM..."
+        update_progress "💫 Setting up ZRAM..." 80
         
         # Create zram configuration
         cat > /mnt/etc/systemd/zram-generator.conf << EOF
@@ -859,22 +965,26 @@ zram-size = ram / 2
 compression-algorithm = zstd
 EOF
         
+        update_progress "✅ ZRAM configured" 85
         log_success "ZRAM configured"
+    else
+        update_progress "⏭️ Skipping ZRAM setup" 85
     fi
 }
 
 install_nvidia_drivers() {
     if [ "$INSTALL_NVIDIA" = true ]; then
         log "Installing NVIDIA drivers..."
-        
-        dialog --title "$(get_text 'installing')" \
-               --infobox "Installing NVIDIA drivers..." 6 50
+        update_progress "🎮 Installing NVIDIA drivers..." 95
         
         # Distribution-specific NVIDIA installation
         # For Arch: arch-chroot /mnt pacman -S nvidia nvidia-utils
         # For Ubuntu: arch-chroot /mnt apt install nvidia-driver-XXX
         
+        update_progress "✅ NVIDIA drivers installed" 100
         log_success "NVIDIA drivers installed"
+    else
+        update_progress "⏭️ Skipping NVIDIA drivers" 100
     fi
 }
 
@@ -927,7 +1037,11 @@ main() {
     desktop_environment_selection
     installation_summary
     
-    # Installation process
+    # Initialize progress bar
+    log "Starting installation with progress tracking..."
+    show_progress_bar
+    
+    # Installation process with progress tracking
     auto_partition_disk
     format_partitions
     mount_partitions
@@ -937,6 +1051,9 @@ main() {
     install_bootloader
     install_nvidia_drivers
     install_desktop_environment
+    
+    # Cleanup progress bar
+    cleanup_progress
     
     # Completion
     log_success "Installation completed successfully!"
