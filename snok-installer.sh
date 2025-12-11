@@ -282,7 +282,28 @@ check_dependencies() {
         echo -e "${CYAN}Attempting to install automatically...${NC}"
         
         if install_dependencies; then
-            log_success "All dependencies installed"
+            # Re-check dependencies after installation
+            local still_missing=()
+            for dep in "${deps[@]}"; do
+                if ! command -v "$dep" &> /dev/null; then
+                    still_missing+=("$dep")
+                fi
+            done
+            
+            if [ ${#still_missing[@]} -gt 0 ]; then
+                echo -e "${RED}Failed to install some dependencies: ${still_missing[*]}${NC}"
+                echo -e "${YELLOW}Please install them manually:${NC}"
+                echo ""
+                echo "For Debian/Ubuntu:"
+                echo "  sudo apt-get install dialog parted dosfstools e2fsprogs pciutils cryptsetup lvm2"
+                echo ""
+                echo "For Arch/Manjaro:"
+                echo "  sudo pacman -S dialog parted dosfstools e2fsprogs pciutils cryptsetup lvm2"
+                echo ""
+                exit 1
+            else
+                log_success "All dependencies installed successfully"
+            fi
         else
             echo -e "${RED}Failed to install dependencies automatically${NC}"
             echo "Please install them manually and try again."
@@ -702,6 +723,14 @@ Proceed with installation?" 22 70
 
 auto_partition_disk() {
     log "Starting automatic disk partitioning on $SELECTED_DISK..."
+    
+    # Verify parted is available
+    if ! command -v parted &> /dev/null; then
+        log_error "parted command not found!"
+        dialog --title "Error" \
+               --msgbox "ERROR: 'parted' command not found!\n\nPlease install parted:\n\nDebian/Ubuntu:\n  sudo apt-get install parted\n\nArch/Manjaro:\n  sudo pacman -S parted" 15 60
+        exit 1
+    fi
     
     # Warning
     dialog --title "WARNING" \
